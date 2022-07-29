@@ -22,7 +22,7 @@ spec:
             containerPort: 5000
         env:
         - name: OTEL_RESOURCE_ATTRIBUTES
-          value: deployment.environment=tech-summit-{{ hostvars[inventory_hostname].name }}
+          value: deployment.environment=tech-summit-{{ ansible_hostname }}
         - name: OTEL_SERVICE_NAME
           value: server-flask-otel-k8s
         - name: SPLUNK_OTEL_AGENT
@@ -60,7 +60,7 @@ spec:
     image: docker.io/stevelsplunk/splk-python
     env:
     - name: OTEL_RESOURCE_ATTRIBUTES
-      value: deployment.environment=tech-summit-{{ hostvars[inventory_hostname].name }}
+      value: deployment.environment=tech-summit-{{ ansible_hostname }}
     - name: OTEL_SERVICE_NAME
       value: client-py-otel-k8s
     - name: SPLUNK_OTEL_AGENT
@@ -93,7 +93,7 @@ spec:
         fieldRef:
           fieldPath: status.hostIP
     - name: OTEL_RESOURCE_ATTRIBUTES
-      value: service.name=client-java-otel-k8s,deployment.environment=tech-summit-{{ hostvars[inventory_hostname].name }}
+      value: service.name=client-java-otel-k8s,deployment.environment=tech-summit-{{ ansible_hostname }}
     - name: SPLUNK_METRICS_ENABLED
       value: "true"
     - name: SPLUNK_METRICS_ENDPOINT
