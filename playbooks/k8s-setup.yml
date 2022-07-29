@@ -58,13 +58,13 @@
 
     - name: clone repos
       git:
-        repo: {{ repoitem.repo }}
-        dest: {{ repoitem.dest }}
+        repo: '{{ repoitem.repo }}'
+        dest: '{{ repoitem.dest }}'
         clone: yes
         update: yes
       loop:
         - { repo: 'https://github.com/signalfx/otelworkshop', dest: '~/otelworkshop' }
-        - { repo: 'https://github.com//techsummit22', dest: '~/ts22' }
+        - { repo: 'https://github.com/rnewbold-splunk/techsummit22.git', dest: '~/ts22' }
       loop_control:
         loop_var: repoitem 
 
@@ -126,7 +126,7 @@
         - name: deploy apm flask server and client
           kubernetes.core.k8s:
             state: present
-            template: roles/k8s_server/templates/flask.deployment.yml
+            template: ~/ts22/k8s/templates/flask.deployment.yml
       rescue:
         - name: register block failure
           set_fact:
