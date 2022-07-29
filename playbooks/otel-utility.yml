@@ -1,0 +1,97 @@
+# playbook to remove OTEL from linux OS host and/or K8s cluster
+# includes task from k8s role for no more reason than code clarity
+
+- hosts: remove_otel:install_otel
+  gather_facts: no
+
+  tasks:
+
+  - name: install status block
+    block:
+      - name: check k8s deploy status
+        kubernetes.core.helm_info:
+          name: splunk-otel-collector-tech-summit-23
+          release_namespace: default
+        register: otelk8sdeployed
+        changed_when: otelk8sdeployed.status is not defined
+     
+      - name: check os install status
+        become: yes
+        shell: systemctl status splunk-otel-collector
+        register: otelosdeployed
+        ignore_errors: yes
+        changed_when: "'service could not be found' in otelosdeployed.stderr"
+        failed_when: "otelosdeployed.rc >= 6 or 'Active: failed' in otelosdeployed.stdout"
+    tags: ['always']
+
+
+  - name: deploy OTEL collector in k8s cluster 
+    kubernetes.core.helm:
+      chart_ref: splunk-otel-collector-chart/splunk-otel-collector
+      release_name: splunk-otel-collector-tech-summit-23
+      release_namespace: default
+      values:
+        cloudProvider: aws
+        clusterName: "{{ hostvars[inventory_hostname].name }}"
+        splunkObservability:
+          realm: us1
+          accessToken: pf6VIwJ7RFiXHQKSMhPLYg
+          logsEnabled: true
+        gateway:
+          enabled: false
+        fluentd:
+          config:
+            containers:
+              logFormatType: cri
+              criTimeFormat: "%Y-%m-%dT%H:%M:%S.%NZ"
+    register: deploy_otel
+    when: "inventory_hostname in groups['install_otel'] and otelosdeployed is changed"
+    tags: ['never','installotelk8s']
+
+  - name: undeploy otel collector from k8s cluster
+    kubernetes.core.helm:
+      release_name: splunk-otel-collector-tech-summit-23
+      release_namespace: default
+      release_state: absent
+      update_repo_cache: true
+    when: inventory_hostname in groups['remove_otel']
+    tags: ['never','removeotelk8s']
+
+  - name: install OTEL collector on host
+    become: yes
+    shell: |
+      curl -sSL https://dl.signalfx.com/splunk-otel-collector.sh > /tmp/splunk-otel-collector.sh
+      /usr/bin/env sh /tmp/splunk-otel-collector.sh --realm us1 -- "{{ o11y_ts23_token }}"
+      rm -rf /tmp/splunk-otel-collector.sh
+    register: installotelsvc
+    when: "inventory_hostname in groups['install_otel'] and otelosdeployed is changed and otelk8sdeployed is changed"
+    tags: ['never','installotelos']
+
+  - name: enable and start OTEL collector svc
+    become: yes
+    systemd:
+      name: splunk-otel-collector
+      state: started
+      enabled: yes
+    when: "inventory_hostname in groups['install_otel'] and otelosdeployed is succeeded and otelosdeployed is not changed"
+    tags: ['never','installotelos']
+
+  - name: stop & disable OTEL collector svc (if found)
+    become: yes
+    systemd:
+      name: splunk-otel-collector
+      state: stopped
+      enabled: no
+    when: "inventory_hostname in groups['remove_otel'] and (otelosdeployed is failed or (otelosdeployed is succeeded and otelosdeployed is not changed))"
+    tags: ['never','disableotelos']
+
+  - name: uninstall OTEL collector from host
+    become: yes
+    shell: |
+      curl -sSL https://dl.signalfx.com/splunk-otel-collector.sh > /tmp/splunk-otel-collector.sh
+      chmod +x /tmp/splunk-otel-collector.sh
+      /usr/bin/env sh /tmp/splunk-otel-collector.sh --uninstall
+      rm -rf /tmp/splunk-otel-collector.sh
+    when: "inventory_hostname in groups['remove_otel'] and (otelosdeployed is failed or (otelosdeployed is succeeded and otelosdeployed is not changed))"
+    tags: ['never','removeotelos']
+

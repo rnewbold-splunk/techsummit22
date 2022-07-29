@@ -1,0 +1,152 @@
+# AML ITSI lab setup playbook   
+#
+
+- hosts: localhost
+  connection: local
+
+  tasks:
+    - name: install/update packages
+      block:
+        - name: update packages
+          become: true
+          apt:
+            update_cache: yes
+
+        - name: install lab prereq packages as root
+          become: true
+          shell: |
+            #install Node
+            apt-get install -y nodejs
+            apt install -y npm
+            #install Java
+            apt install -y openjdk-8-jdk
+            #sudo apt-get -y install maven
+            #install python pip
+            apt install -y python3-pip
+            # install ansible python libraries
+            #pip install --upgrade --user openshift
+
+        - name: pip install module prereqs
+          pip:
+            name:
+              - openshift
+              - pyyaml
+              - kubernetes
+
+        - name: install k3s and lab prerequisites
+          shell: |
+            #install helm
+            curl -s https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
+            #install k3s
+            curl -sfL https://get.k3s.io | sh -
+            #install otel
+            helm repo add splunk-otel-collector-chart https://signalfx.github.io/splunk-otel-collector-chart
+            helm repo update
+            #install python dependencies 
+            export PATH="$HOME/.local/bin:$PATH"
+            python3 -m pip install -r https://raw.githubusercontent.com/signalfx/otelworkshop/master/setup-tools/requirements.txt
+            splk-py-trace-bootstrap
+            #enable helm to access cluster
+            export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+            sudo chown ubuntu:ubuntu /etc/rancher/k3s/k3s.yaml;sudo chmod 750 /etc/rancher/k3s/k3s.yaml
+
+        - name: correct kube environment 
+          shell: |
+            mkdir -p /home/ubuntu/.kube
+            kubectl config view --raw > /home/ubuntu/.kube/config
+            chmod 750 /home/ubuntu/.kube/config
+
+    - name: clone repos
+      git:
+        repo: {{ repoitem.repo }}
+        dest: {{ repoitem.dest }}
+        clone: yes
+        update: yes
+      loop:
+        - { repo: 'https://github.com/signalfx/otelworkshop', dest: '~/otelworkshop' }
+        - { repo: 'https://github.com//techsummit22', dest: '~/ts22' }
+      loop_control:
+        loop_var: repoitem 
+
+    - name: update profile and check k3s
+      block:
+        - name: update profile
+          blockinfile:
+            dest: /home/ubuntu/.bashrc
+            block: |
+              alias k="kubectl"
+              alias h="history"
+              export PATH="/home/ubuntu/.local/bin:$PATH"
+              export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+              sudo chmod 750 /etc/rancher/k3s/k3s.yaml
+            marker: '# {mark} ANSIBLE MANAGED BLOCK'
+            insertafter: EOF
+            create: yes 
+          register: setup_status
+
+        - name: check k3s cluster
+          kubernetes.core.k8s_cluster_info:
+          register: k3s_cluster_status
+          ignore_errors: yes
+          when: setup_status is succeeded
+
+    - name: deploy applications to k3s
+      block:
+        - name: add helm chart repo
+          kubernetes.core.helm_repository:
+            name: veducate
+            repo_url: "https://saintdle.github.io/helm-charts/"
+          register: pacman_repo_status
+
+        - name: deploy pacman helm chart
+          kubernetes.core.helm:
+            name: pacman
+            chart_ref: veducate/pacman
+            release_namespace: pacman
+            create_namespace: true
+          register: pacman_deploy_status
+          when: pacman_repo_status is succeeded
+
+        - name: patch pacman service 
+          kubernetes.core.k8s_json_patch:
+            kind: Service
+            namespace: pacman
+            name: pacman
+            patch:
+              - op: replace
+                path: /spec/type
+                value: NodePort
+          when: pacman_deploy_status is succeeded
+
+        - name: deploy floppybirds from local template
+          kubernetes.core.k8s:
+            state: present
+            template: ~/ts22/k8s/templates/floppybirds.deployment.yml
+
+        - name: deploy apm flask server and client
+          kubernetes.core.k8s:
+            state: present
+            template: roles/k8s_server/templates/flask.deployment.yml
+      rescue:
+        - name: register block failure
+          set_fact:
+            deploy_status: false
+      when: k3s_cluster_status is succeeded
+
+    - name: Check URIs
+      delegate_to: localhost
+      uri:
+        url: "http://localhost/{{ urlitem.path }}/"
+        return_content: yes
+      ignore_errors: yes
+      register: site_status
+      when: deploy_status is not defined
+      until: site_status is not failed
+      delay: 10
+      retries: 9
+      loop:
+        - { path: pacman }
+        - { path: floppybirds }
+      loop_control:
+        loop_var: urlitem 
+

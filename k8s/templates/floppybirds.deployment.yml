@@ -1,0 +1,96 @@
+# floppybirds deployment file
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: floppybirds
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: floppybirds
+  namespace: floppybirds
+spec:
+  type: NodePort
+  selector:
+    app: floppybirds
+  ports:
+    - port: 8888
+      targetPort: 8888
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: floppybirds
+  namespace: floppybirds
+  labels:
+    app: floppybirds
+spec:
+  containers:
+    - name: floppybirds
+      image: fvaliquette/tech-summit:0.0.1
+      ports:
+        - containerPort: 8888
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-pacman-prefix
+  namespace: pacman
+spec:
+  stripPrefix:
+    prefixes:
+      - /pacman
+    forceSlash: false
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-floppybirds-prefix
+  namespace: floppybirds
+spec:
+  stripPrefix:
+    prefixes:
+      - /floppybirds
+    forceSlash: false
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: pacman
+  namespace: pacman
+spec:
+  entryPoints:
+    - web
+  routes:
+  - match: PathPrefix(`/pacman`)
+    kind: Rule
+    services:
+    - name: pacman
+      port: 80
+    middlewares:
+    - name: strip-pacman-prefix  
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: floppybirds
+  namespace: floppybirds
+spec:
+  entryPoints:
+    - web
+  routes:
+  - match: PathPrefix(`/floppybirds`)
+    kind: Rule
+    services:
+    - name: floppybirds
+      port: 8888
+    middlewares:
+    - name: strip-floppybirds-prefix

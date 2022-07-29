@@ -1,0 +1,92 @@
+# AML ITSI lab setup playbook   
+#
+
+- hosts: itsi_staged
+  gather_facts: no
+  serial: 10
+
+  tasks:
+    - name: Wait for SSH to come up
+      wait_for_connection:
+        timeout: 180
+
+    - name: setup & validate itsi 
+      become: true
+      become_user: splunk
+      block:
+
+        - name: execute setup
+          script: roles/itsi_server/files/itsi_boot_strap.sh setup
+          ignore_errors: yes
+          register: setup_status
+
+        - name: check SLO certificate
+          stat:
+            path: /opt/splunk/etc/auth/slocert/SLOcert.pem
+          register: slocert
+          ignore_errors: yes
+          failed_when: slocert.stat.mode != '0700'
+
+    - name: restart splunkd service post config
+      become: yes
+      systemd:
+        name: Splunkd
+        state: restarted
+      failed_when: splunkdsvc.status['Result'] != 'success'
+      ignore_errors: yes
+      register: splunkdsvc
+
+    - debug:
+        msg: "splunkd restart object: {{ splunkdsvc }}"
+
+    - name: check data generators block
+      block:
+        - name: wait for splunkd to initialize
+          wait_for:
+            host: localhost
+            port: 8088
+            delay: 20
+            sleep: 5
+            timeout: 120
+          ignore_errors: yes
+
+        - name: check data generators
+          command: pgrep -f -a 'simdata|data-blaster'
+          ignore_errors: yes
+          register: datagen_status 
+          failed_when: datagen_status.stdout_lines|length < 6
+          until: datagen_status is not failed
+          retries: 12
+          delay: 20
+      when: splunkdsvc is succeeded
+
+    - name: remove ITSI host from physical inventory
+      local_action: lineinfile
+                    path="~/AWS_Ansible/inventory/hosts"
+                    state=absent
+                    regexp={{ inventory_hostname }}
+
+    - name: register failed ITSI host in physical inventory
+      local_action: lineinfile 
+                    path="~/AWS_Ansible/inventory/hosts"
+                    regexp="{{ hostvars[inventory_hostname].name }} {{ hostvars[inventory_hostname].environment }}"
+                    insertafter="\[itsi_failed\]" 
+                    line="{{ inventory_hostname }} name={{ hostvars[inventory_hostname].name }} environment={{ hostvars[inventory_hostname].environment }} owner={{ hostvars[inventory_hostname].owner }} private_dns_name={{ hostvars[inventory_hostname].private_dns_name }} public_dns_name={{ hostvars[inventory_hostname].public_dns_name }} ansible_user={{ hostvars[inventory_hostname].ansible_user }} ansible_ssh_private_key_file={{ hostvars[inventory_hostname].ansible_ssh_private_key_file }} ansible_ssh_extra_args='-o StrictHostKeyChecking=no'"
+      when: (setup_status is failed) or (splunkdsvc is failed) or (datagen_status is failed) or (slocert is failed)
+
+    - name: register succeeded ITSI host in physical inventory
+      local_action: lineinfile
+                    path="~/AWS_Ansible/inventory/hosts"
+                    regexp="{{ hostvars[inventory_hostname].name }} {{ hostvars[inventory_hostname].environment }}"
+                    insertafter="\[labservers\]" 
+                    line="{{ inventory_hostname }} name={{ hostvars[inventory_hostname].name }} environment={{ hostvars[inventory_hostname].environment }} owner={{ hostvars[inventory_hostname].owner }} private_dns_name={{ hostvars[inventory_hostname].private_dns_name }} public_dns_name={{ hostvars[inventory_hostname].public_dns_name }} ansible_user={{ hostvars[inventory_hostname].ansible_user }} ansible_ssh_private_key_file={{ hostvars[inventory_hostname].ansible_ssh_private_key_file }} ansible_ssh_extra_args='-o StrictHostKeyChecking=no'" 
+      when: (datagen_status is not failed) and (slocert is not failed)
+
+    - name: register succeeded ITSI host to in-memory inventory
+      run_once: yes
+      add_host:
+        name: "{{ item }}"
+        group: labservers
+      loop: "{{ ansible_play_hosts }}"
+      when: (datagen_status is not failed) and (slocert is not failed)
+
