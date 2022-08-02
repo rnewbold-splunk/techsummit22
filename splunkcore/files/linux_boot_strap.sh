@@ -1,4 +1,4 @@
-#!/bin/bash 
+#!/bin/bash -x
 
 # Boot strap script for ITSI Labs
 # Tech Summit '23
@@ -6,43 +6,54 @@
 validate() {
 	$SPLUNK_HOME/bin/splunk status
 	if [[ $? -ne 0 ]]; then
+		printf "WARNING: splunkd reports status down, manual intervention required"
 		return 6
 	fi
-        readarray -t sims < <(pgrep -f -a "(simdata|data-blaster)")
-	if [[ ${#sims[@]} -lt 8 ]]; then
-		printf "%s" ${sims[@]}
+        readarray -t sims < <(pgrep -f -a "data-blaster")
+	if [[ ${#sims[@]} -lt 1 ]]; then
+		printf "WARNING: %s datasim processes found, expected 1. Check $SPLUNK_HOME/etc/apps/datapet/bin/datapet*.log for details " ${#sims[@]}
+		return 6
+	fi
+	printf "Validation passed - splunkd=running, active datagen processes=%s" ${#sims[@]}
+}
+
+install_datagen() {
+	dg="$HOME/techsummit22/splunkcore/datagen/datapet.tgz"
+	if [[ -f $dg ]]; then
+		$(tar zxf $dg -C $SPLUNK_HOME/etc/apps 1>/dev/null)
+		if [[ $? -ne 0 ]]; then
+			printf "ERROR: encountered exception uncompressing datagen (%s)" $tarerr
+			return 6
+		fi
+	else
+		printf "ERROR: unable to install datagen, source file %s not found" $dg
 		return 6
 	fi
 }
 
-setup() {
+slo_cert() {
 	# SLO cert location & workdir
 	SLOHOME="$SPLUNK_HOME/etc/auth/slocert"
 	mkdir -p $SLOHOME; cd $SLOHOME
 
-	# get host details
-	fqpublichostname=$(curl -s http://169.254.169.254/latest/meta-data/public-hostname)
-	fqprivatehostname=$(curl -s http://169.254.169.254/latest/meta-data/hostname) 
-	publichostname=$(echo $fqpublichostname | awk -F"." '{print $1}')
-	privatehostname=$(echo $fqprivatehostname | awk -F"." '{print $1}')
-	if [[ -z fqpublichostname || -z fqprivatehostname ]];then
-		printf "Error: Splunk Enterprise certificate generation. Failed to get instance host metadata\n"
+	# get host public details if AWS
+	id ec2-user >/dev/null 2>&1
+	if [[ $? -eq 0 ]]; then	
+		fqpublichostname=$(curl -s http://169.254.169.254/latest/meta-data/public-hostname)
 	else
-		printf "Public FQDN:  %s\nPublic host:  %s\nPrivate FQDN: %s\nPrivate host: %s" $fqpublichostname $publichostname $fqprivatehostname $privatehostname  > commonname.txt
+		while [[ -z $fqpublichostname ]]; do
+			read -p "Unable to confirm public DNS name for this instance - please enter public FQDN:\n" fqpublichostname
+		done
 	fi
-
-	# correct server.conf
-	sed -E -i "s/^serverName\s=.+/serverName = $fqpublichostname/" /opt/splunk/etc/system/local/server.conf 
-	if [[ $? -ne 0 ]]; then
-		printf "Update of server.conf failed\n"
-	fi
+	publichostname=$(echo $fqpublichostname | awk -F"." '{print $1}')
+	printf "Public FQDN:  %s\nPublic host:  %s\n" $fqpublichostname $publichostname > commonname.txt
 
 	# SLO Cert creation
 	country=US
 	state=CA
 	locality=CA
 	organization="Splunk Inc"
-	organizationalunit=PS
+	organizationalunit=EDU
 	email=admin@splunk.com
 
 	$SPLUNK_HOME/bin/splunk cmd openssl genrsa -aes256 -out myCAPrivateKey.key -passout pass:Splunk£verything 2048
@@ -71,14 +82,33 @@ setup() {
 	fi
 }
 
+restart_splunkd() {
+	sudo systemctl list-unit-files | grep Splunkd.service >/dev/null 2>&1
+	if [[ $? -ne 0 ]]; then
+		$SPLUNK_HOME/bin/splunk restart 
+	else
+		sudo systemctl restart Splunkd
+		sudo systemctl is-active Splunkd >/dev/null 2>&1
+	fi
+	if [[ $? -ne 0 ]]; then
+		printf "\nERROR: Splunkd restart failed. Manual action required to complete install\n"
+		exit 6
+	fi
+}
+
 # main
 if [[ -z $SPLUNK_HOME ]]; then
-	SPLUNK_HOME=/opt/splunk
+	if [[ -f /opt/splunk/bin/splunk ]]; then
+		SPLUNK_HOME=/opt/splunk
+	else
+		printf "ERROR: unable to confirm SPLUNK_HOME, aborting\nTo fix update $SPLUNK_HOME and export\n"
+	fi
 fi
 
 # Check user
-if [[ $USER != splunk ]]; then
-        printf 'ERROR: Boot strap must be run as splunk but %s found\nsudo su - splunk and try again\n' $USER
+SPLUNKUSER=$(ls -l $SPLUNK_HOME/bin/splunk |  awk 'NR==1 {print $3}')
+if [[ $USER != $SPLUNKUSER ]]; then
+	printf 'ERROR: Boot strap must be run as SPLUNK user (%s) but active user '%s' found. Change user to %s and try again\n' $SPLUNKUSER $USER $SPLUNKUSER
         exit 1
 fi
 
@@ -89,6 +119,15 @@ elif [[ $1 == validate ]]; then
 	validate
 	exit $?
 elif [[ $1 == setup ]]; then
-	setup
-	exit $?
+	slo_cert
+	install_datagen
+	if [[ $? -eq 0 ]]; then
+		restart_splunkd
+		printf "waiting for splunkd initialisation to complete.."
+		for ((i=1;i<=10;i++)); do
+			sleep 2
+			printf "."
+		done
+		validate
+	fi
 fi
