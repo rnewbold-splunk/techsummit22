@@ -6,15 +6,15 @@
 validate() {
 	$SPLUNK_HOME/bin/splunk status
 	if [[ $? -ne 0 ]]; then
-		printf "WARNING: splunkd reports status down, manual intervention required"
+		printf "WARNING: splunkd reports status down, manual intervention required\n"
 		return 6
 	fi
         readarray -t sims < <(pgrep -f -a "data-blaster")
 	if [[ ${#sims[@]} -lt 1 ]]; then
-		printf "WARNING: %s datasim processes found, expected 1. Check $SPLUNK_HOME/etc/apps/datapet/bin/datapet*.log for details " ${#sims[@]}
+		printf "WARNING: %s datasim processes found, expected 1. Check $SPLUNK_HOME/etc/apps/datapet/bin/datapet*.log for details\n" ${#sims[@]}
 		return 6
 	fi
-	printf "Validation passed - splunkd=running, active datagen processes=%s" ${#sims[@]}
+	printf "Validation passed - splunkd=running, active datagen processes=%s\n" ${#sims[@]}
 }
 
 install_datagen() {
@@ -22,11 +22,11 @@ install_datagen() {
 	if [[ -f $dg ]]; then
 		$(tar zxf $dg -C $SPLUNK_HOME/etc/apps 1>/dev/null)
 		if [[ $? -ne 0 ]]; then
-			printf "ERROR: encountered exception uncompressing datagen (%s)" $tarerr
+			printf "ERROR: encountered exception uncompressing datagen (%s)\n" $tarerr
 			return 6
 		fi
 	else
-		printf "ERROR: unable to install datagen, source file %s not found" $dg
+		printf "ERROR: unable to install datagen, source file %s not found\n" $dg
 		return 6
 	fi
 	printf "datagen install completed\n"
@@ -85,6 +85,7 @@ slo_cert() {
 }
 
 restart_splunkd() {
+	printf "attempting restart of splunkd..."
 	sudo systemctl list-unit-files | grep Splunkd.service >/dev/null 2>&1
 	if [[ $? -ne 0 ]]; then
 		$SPLUNK_HOME/bin/splunk restart 
@@ -96,7 +97,7 @@ restart_splunkd() {
 		printf "\nERROR: Splunkd restart failed. Manual action required to complete install\n"
 		exit 6
 	fi
-	printf "splunkd restart completed\n"
+	printf "done\n"
 }
 
 # main
@@ -128,7 +129,7 @@ elif [[ $1 == setup ]]; then
 	install_datagen
 	if [[ $? -eq 0 ]]; then
 		restart_splunkd
-		printf "waiting for splunkd initialisation to complete.."
+		printf "waiting for splunkd initialisation.."
 		for ((i=1;i<=10;i++)); do
 			sleep 2
 			printf "."
