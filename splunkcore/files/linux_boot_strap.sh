@@ -4,7 +4,7 @@
 # Author: rnewbold@splunk.com
 
 validate() {
-	$SPLUNK_HOME/bin/splunk status
+	$SPLUNK_HOME/bin/splunk status >/dev/null 2>&1
 	if [[ $? -ne 0 ]]; then
 		printf "WARNING: splunkd reports status down, manual intervention required\n"
 		return 6
