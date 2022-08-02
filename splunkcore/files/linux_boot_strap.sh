@@ -1,7 +1,7 @@
-#!/bin/bash -x
+#!/bin/bash 
 
-# Boot strap script for ITSI Labs
-# Tech Summit '23
+# Description: Boot strap script for core servers, Splunk O11y Labs, Tech Summit '22
+# Author: rnewbold@splunk.com
 
 validate() {
 	$SPLUNK_HOME/bin/splunk status
