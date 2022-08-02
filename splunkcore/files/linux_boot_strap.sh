@@ -134,6 +134,7 @@ elif [[ $1 == setup ]]; then
 			sleep 2
 			printf "."
 		done
+		printf "\n"
 		validate
 	fi
 fi
