@@ -29,6 +29,7 @@ install_datagen() {
 		printf "ERROR: unable to install datagen, source file %s not found" $dg
 		return 6
 	fi
+	printf "datagen install completed\n"
 }
 
 slo_cert() {
@@ -80,6 +81,7 @@ slo_cert() {
 		printf "Error: Splunk Enterprise certificate generation. Final certificate file not found?\n"
 		return 1
 	fi
+	printf "example SLO certificate files created successfully\n" 	
 }
 
 restart_splunkd() {
@@ -94,6 +96,7 @@ restart_splunkd() {
 		printf "\nERROR: Splunkd restart failed. Manual action required to complete install\n"
 		exit 6
 	fi
+	printf "splunkd restart completed\n"
 }
 
 # main
@@ -119,7 +122,9 @@ elif [[ $1 == validate ]]; then
 	validate
 	exit $?
 elif [[ $1 == setup ]]; then
+	printf "\n====Create example SLO cert==========================\n"
 	slo_cert
+	printf "\n====Install Data Gen=================================\n"
 	install_datagen
 	if [[ $? -eq 0 ]]; then
 		restart_splunkd
