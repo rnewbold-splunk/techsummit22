@@ -25,18 +25,14 @@
         clone: yes
         update: yes
 
-    - name: update profile and check k3s
-      become: true
-      become_user: splunk
-      block:
-        - name: update profile
-          blockinfile:
-            dest: ~/.bashrc
-            block: |
-              export PATH="{{ SPLUNK_HOME }}/bin:$PATH"
-            marker: '# {mark} ANSIBLE MANAGED BLOCK'
-            insertafter: EOF
-            create: yes
+    - name: update splunk profile
+      blockinfile:
+        dest: ~/.bashrc
+        block: |
+          export PATH="{{ SPLUNK_HOME }}/bin:$PATH"
+        marker: '# {mark} ANSIBLE MANAGED BLOCK'
+        insertafter: EOF
+        create: yes
 
     - name: create SLO certs
       become: true
@@ -44,7 +40,7 @@
       block:
 
         - name: execute setup
-          script: ~/ts22/splunkcore/files/splunk_boot_strap.sh setup
+          script: "~/ts22/splunkcore/files/splunk_boot_strap.sh setup"
           register: setup_status
 
         - name: check SLO certificate
