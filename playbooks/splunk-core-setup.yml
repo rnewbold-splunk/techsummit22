@@ -9,9 +9,8 @@
       wait_for:
         host: localhost
         port: 8089
-        delay: 20
         sleep: 2
-        timeout: 240
+        timeout: 120
 
     - set_fact: SPLUNK_HOME="/opt/splunk"
       when: SPLUNK_HOME is undefined
