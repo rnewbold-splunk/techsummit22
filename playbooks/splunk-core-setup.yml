@@ -52,7 +52,7 @@
 
     - name: install DataGen
       unarchive:
-         src: "~/ts22/splunkcore/datagen/datapet.tgz"
+         src: "{{ HOME }}/ts22/splunkcore/datagen/datapet.tgz"
          dest: "{{ SPLUNK_HOME }}/etc/apps/"
 
     - name: restart splunkd service post config
