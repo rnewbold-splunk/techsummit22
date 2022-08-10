@@ -1,23 +1,22 @@
-# AML ITSI lab setup playbook   
+# AML Splunk Core lab setup playbook   
 #
 
 - hosts: localhost
   connection: local
+  become: true
+  become_user: splunk
 
   tasks:
-    - name: wait for splunk install
-      wait_for:
-        host: localhost
-        port: 8089
-        sleep: 2
-        timeout: 120
-
     - set_fact: SPLUNK_HOME="/opt/splunk"
       when: SPLUNK_HOME is undefined
 
+    - name: check splunk install
+      stat: 
+        path: "{{ SPLUNK_HOME }}/etc/auth/server.pem"
+        register: splunk_install
+        failed_when: splunk_install not defined OR not splunk_install.isreg 
+
     - name: clone repos
-      become: true
-      become_user: splunk
       git:
         repo: 'https://github.com/rnewbold-splunk/techsummit22.git'
         dest: '~/ts22'
@@ -26,7 +25,7 @@
 
     - name: update splunk profile
       blockinfile:
-        dest: ~/.bashrc
+        dest: "~/.bashrc"
         block: |
           export PATH="{{ SPLUNK_HOME }}/bin:$PATH"
         marker: '# {mark} ANSIBLE MANAGED BLOCK'
@@ -34,12 +33,9 @@
         create: yes
 
     - name: create SLO certs
-      become: true
-      become_user: splunk
       block:
-
         - name: execute setup
-          script: "~/ts22/splunkcore/files/splunk_boot_strap.sh setup"
+          command: "~/ts22/splunkcore/files/splunk_boot_strap.sh setup"
           register: setup_status
 
         - name: check SLO certificate
@@ -51,11 +47,16 @@
 
     - name: install DataGen
       unarchive:
-         src: "{{ HOME }}/ts22/splunkcore/datagen/datapet.tgz"
+         src: "~/ts22/splunkcore/datagen/datapet.zip"
          dest: "{{ SPLUNK_HOME }}/etc/apps/"
+         group: splunk
+         owner: splunk
+         mode: '750'
+         remote_src: yes
 
     - name: restart splunkd service post config
       become: yes
+      become_user: root
       systemd:
         name: Splunkd
         state: restarted
